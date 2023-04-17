@@ -1,10 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:pod_player/pod_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:path/path.dart' as p;
+import 'package:universal_html/html.dart' as phtml;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 void main() {
   runApp(const MyApp());
@@ -36,7 +43,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   List<dynamic> feedList = [];
-  List<String> favorites = [];
+  List<dynamic> favorites = [];
   final String baseUrl = "https://www.reddit.com";
   late String path;
   late String subReddit;
@@ -49,6 +56,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    retrieveFavorites();
     reset();
   }
 
@@ -56,7 +64,6 @@ class _MyHomePageState extends State<MyHomePage> {
     path = '/best.json';
     subReddit = 'best';
     fetchData();
-    retrieveFavorites();
   }
 
   Future<void> fetchData({bool next = false}) async {
@@ -128,7 +135,7 @@ class _MyHomePageState extends State<MyHomePage> {
         // }
       },
       child: tbUrl.contains('http')
-          ? Image.network(tbUrl)
+          ? Image.network(tbUrl.replaceAll('&amp;', '&'))
           : const Icon(
               Icons.image,
               size: 42,
@@ -164,14 +171,46 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
           actions: [
-            TextButton(
+            IconButton(
+              onPressed: () =>
+                  kIsWeb ? _downloadImageWeb(vUrl) : _downloadImageMobile(vUrl),
+              icon: const Icon(Icons.download),
+            ),
+            IconButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Icon(Icons.close),
+              icon: const Icon(Icons.close),
             )
           ],
         );
       },
     );
+  }
+
+  Future<Int8List> readNetworkImage(String imageUrl) async {
+    final ByteData data =
+        await NetworkAssetBundle(Uri.parse(imageUrl)).load(imageUrl);
+    final Int8List bytes = data.buffer.asInt8List();
+    return bytes;
+  }
+
+  Future<void> _downloadImageWeb(String url) async {
+    final anchor = phtml.AnchorElement(href: url);
+    anchor.download = '';
+    phtml.document.body!.append(anchor);
+    anchor.click();
+    await Future.delayed(const Duration(milliseconds: 100));
+    anchor.remove();
+  }
+
+  Future<void> _downloadImageMobile(String url) async {
+    final uri = Uri.parse(url);
+    final response = await http.get(uri);
+    final bytes = response.bodyBytes;
+    final downloadFolder = await getExternalStorageDirectory();
+    final filePath =
+        '${downloadFolder?.path}/${p.basename(uri.pathSegments.last)}';
+    final file = File(filePath);
+    await file.writeAsBytes(bytes);
   }
 
   void showImage(BuildContext context, String iUrl) {
@@ -203,10 +242,15 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
           actions: [
-            TextButton(
+            IconButton(
+              onPressed: () =>
+                  kIsWeb ? _downloadImageWeb(iUrl) : _downloadImageMobile(iUrl),
+              icon: const Icon(Icons.download),
+            ),
+            IconButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Icon(Icons.close),
-            )
+              icon: const Icon(Icons.close),
+            ),
           ],
         );
       },
@@ -231,13 +275,16 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     });
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    prefs.setStringList('favorites', favorites);
+    prefs.setString('favorites', jsonEncode(favorites));
   }
 
   void retrieveFavorites() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    if (prefs.getStringList('favorites') != null) {
-      favorites = prefs.getStringList('favorites')!;
+    String? fav = prefs.getString('favorites');
+    if (fav != null) {
+      setState(() {
+        favorites = jsonDecode(fav);
+      });
     }
   }
 
@@ -446,22 +493,24 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ),
                 ),
-                ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: favorites.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Center(
-                        child: Text(favorites[index]),
-                      ),
-                      onTap: () {
-                        subReddit = favorites[index];
-                        path = '/${favorites[index]}.json';
-                        fetchData();
-                        Navigator.of(context).pop();
-                      },
-                    );
-                  },
+                Expanded(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: favorites.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        title: Center(
+                          child: Text(favorites[index]),
+                        ),
+                        onTap: () {
+                          subReddit = favorites[index];
+                          path = '/${favorites[index]}.json';
+                          fetchData();
+                          Navigator.of(context).pop();
+                        },
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
