@@ -52,6 +52,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final scrollController = ScrollController();
   final focusNode = FocusNode();
   final double maxWidth = 768.0;
+  String searchType = 'all';
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (next) {
         url += '?after=$after';
       }
+      // print(url);
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
@@ -266,6 +268,27 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  void globalSearch() {
+    focusNode.unfocus();
+    if (searchController.text.isNotEmpty) {
+      if (searchController.text.startsWith(RegExp(r'[a-z]\/'))) {
+        path = '/${searchController.text}.json';
+      } else {
+        path = '/search.json?q=${searchController.text}';
+        if (searchType != 'all') {
+          path += '&type=$searchType';
+        }
+      }
+      scrollController.animateTo(
+        0.0,
+        curve: Curves.easeOut,
+        duration: const Duration(milliseconds: 300),
+      );
+      fetchData();
+    }
+    searchController.clear();
+  }
+
   void saveFavorites() async {
     setState(() {
       if (favorites.contains(subReddit)) {
@@ -320,36 +343,57 @@ class _MyHomePageState extends State<MyHomePage> {
                   : MediaQuery.of(context).size.width,
               child: Column(
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: searchController,
-                      focusNode: focusNode,
-                      onEditingComplete: () {
-                        focusNode.unfocus();
-                      },
-                      decoration: InputDecoration(
-                        hintText: "Pesquisar",
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.search),
-                          onPressed: () {
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        flex: 8,
+                        child: TextField(
+                          controller: searchController,
+                          focusNode: focusNode,
+                          onEditingComplete: () {
                             focusNode.unfocus();
-                            if (searchController.text
-                                .startsWith(RegExp(r'[a-z]\/'))) {
-                              path = '/${searchController.text}.json';
-                            } else {
-                              path = '/search.json?q=${searchController.text}';
-                            }
-                            scrollController.animateTo(
-                              0.0,
-                              curve: Curves.easeOut,
-                              duration: const Duration(milliseconds: 300),
-                            );
-                            fetchData();
-                            searchController.clear();
                           },
+                          onSubmitted: (String value) {
+                            globalSearch();
+                          },
+                          decoration: InputDecoration(
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 10),
+                            hintText: "Pesquisar",
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.search),
+                              onPressed: () {
+                                globalSearch();
+                              },
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(0, 13, 0, 0),
+                          child: DropdownButton<String>(
+                            value: searchType,
+                            icon: const Icon(Icons.arrow_downward),
+                            elevation: 16,
+                            onChanged: (String? value) {
+                              setState(() {
+                                print(value);
+                                searchType = value!;
+                              });
+                            },
+                            items: ['all', 'sr', 'link']
+                                .map<DropdownMenuItem<String>>((String value) {
+                              return DropdownMenuItem<String>(
+                                value: value,
+                                child: Text(value),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   Expanded(
                     child: Row(
@@ -395,78 +439,12 @@ class _MyHomePageState extends State<MyHomePage> {
                       itemBuilder: (context, index) {
                         var item = feedList[index];
 
-                        return Container(
-                          padding: const EdgeInsets.all(8.0),
-                          decoration: BoxDecoration(
-                            color: Colors.black12,
-                            borderRadius: BorderRadius.circular(
-                              10.0,
-                            ),
-                            border: Border.all(
-                              color: Colors.black38,
-                            ),
-                          ),
-                          constraints: const BoxConstraints(
-                            minHeight: 80.0,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  IconButton(
-                                    onPressed: () {
-                                      _launchUrl(
-                                        Uri.parse(
-                                            "${item['data']['url_overridden_by_dest']}"),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.launch),
-                                  ),
-                                  IconButton(
-                                    onPressed: () {
-                                      _launchUrl(
-                                        Uri.parse(
-                                            "$baseUrl${item['data']['permalink']}"),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.reddit),
-                                  ),
-                                ],
-                              ),
-                              Text(item['data']['title']),
-                              Text(item['data']['selftext']),
-                              // Text(
-                              //   const JsonEncoder.withIndent('        ')
-                              //       .convert(
-                              //     item['data'],
-                              //   ),
-                              // ),
-                              getPostImage(context, item),
-                              ElevatedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    path =
-                                        '/${item['data']['subreddit_name_prefixed']}.json';
-                                    subReddit =
-                                        item['data']['subreddit_name_prefixed'];
-                                    fetchData();
-                                    scrollController.animateTo(
-                                      0.0,
-                                      curve: Curves.easeOut,
-                                      duration:
-                                          const Duration(milliseconds: 300),
-                                    );
-                                  });
-                                },
-                                child: Text(
-                                  item['data']['subreddit_name_prefixed'],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
+                        if (item['kind'] == 't3') {
+                          return createFeedCard(item, context);
+                        } else if (item['kind'] == 't5') {
+                          return createSRCard(item, context);
+                        }
+                        return const SizedBox.shrink();
                       },
                     ),
                   ),
@@ -516,6 +494,113 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Container createFeedCard(item, BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8.0),
+      decoration: BoxDecoration(
+        color: Colors.black12,
+        borderRadius: BorderRadius.circular(
+          10.0,
+        ),
+        border: Border.all(
+          color: Colors.black38,
+        ),
+      ),
+      constraints: const BoxConstraints(
+        minHeight: 80.0,
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              IconButton(
+                onPressed: () {
+                  _launchUrl(
+                    Uri.parse("${item['data']['url_overridden_by_dest']}"),
+                  );
+                },
+                icon: const Icon(Icons.launch),
+              ),
+              IconButton(
+                onPressed: () {
+                  _launchUrl(
+                    Uri.parse("$baseUrl${item['data']['permalink']}"),
+                  );
+                },
+                icon: const Icon(Icons.reddit),
+              ),
+            ],
+          ),
+          Text(item['data']['title']),
+          Text(item['data']['selftext']),
+          getPostImage(context, item),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                path = '/${item['data']['subreddit_name_prefixed']}.json';
+                subReddit = item['data']['subreddit_name_prefixed'];
+                fetchData();
+                scrollController.animateTo(
+                  0.0,
+                  curve: Curves.easeOut,
+                  duration: const Duration(milliseconds: 300),
+                );
+              });
+            },
+            child: Text(
+              item['data']['subreddit_name_prefixed'],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Container createSRCard(item, BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8.0),
+      decoration: BoxDecoration(
+        color: Colors.black12,
+        borderRadius: BorderRadius.circular(
+          10.0,
+        ),
+        border: Border.all(
+          color: Colors.black38,
+        ),
+      ),
+      constraints: const BoxConstraints(
+        minHeight: 80.0,
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(item['data']['title']),
+          Text(item['data']['display_name']),
+          Text(item['data']['public_description']),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                path = '/${item['data']['display_name_prefixed']}.json';
+                subReddit = item['data']['display_name'];
+                fetchData();
+                scrollController.animateTo(
+                  0.0,
+                  curve: Curves.easeOut,
+                  duration: const Duration(milliseconds: 300),
+                );
+              });
+            },
+            child: Text(
+              item['data']['display_name_prefixed'],
+            ),
+          ),
+        ],
       ),
     );
   }

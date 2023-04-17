@@ -6,6 +6,8 @@ flutter run -d chrome --web-renderer html
 
 flutter build web --web-renderer html --release
 
+scp -i ~/Documentos/ssh-keys/ssh-key-2020-11-16.key -r web/* ubuntu@dev.pauloduarte.tec.br:/usr/local/src/nginx-docker/reddit/web
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.
